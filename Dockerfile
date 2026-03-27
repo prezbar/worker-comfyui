@@ -99,3 +99,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libc-dev \
     python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir https://huggingface.co/buckets/Prezbar/sage-attn/resolve/8_9-12/cu130/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
