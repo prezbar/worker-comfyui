@@ -19,6 +19,24 @@ else
     SNAPSHOT_DIR=""
 fi
 
+# Create symlinks from SNAPSHOT_DIR to /comfyui/models/ based on MODEL_SYMLINKS env var
+# Format: "rel/path" (dst mirrors src under /comfyui/models/) or "rel/path:/absolute/dst"
+if [ -n "$MODEL_SYMLINKS" ] && [ -n "$SNAPSHOT_DIR" ]; then
+    for entry in $MODEL_SYMLINKS; do
+        case "$entry" in
+            *:*)
+                rel="${entry%%:*}"
+                dst="${entry#*:}"
+                [ -n "$rel" ] && src="${SNAPSHOT_DIR}${rel}" || src="${SNAPSHOT_DIR%/}"
+                ;;
+            *) src="${SNAPSHOT_DIR}${entry}"; dst="/comfyui/models/${entry}" ;;
+        esac
+        safe_ln "$src" "$dst"
+    done
+elif [ -n "$MODEL_SYMLINKS" ] && [ -z "$SNAPSHOT_DIR" ]; then
+    echo "Warning: MODEL_SYMLINKS is set but SNAPSHOT_DIR is empty, skipping symlinks"
+fi
+
 # Run pre-start hook if it exists (sourced to inherit functions defined above)
 if [ -f /prestart.sh ]; then
     source /prestart.sh
