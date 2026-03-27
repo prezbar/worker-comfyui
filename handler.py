@@ -827,24 +827,27 @@ def handler(job):
 
         print(f"worker-comfyui - Processing {len(outputs)} output nodes...")
         for node_id, node_output in outputs.items():
-            if "images" in node_output:
+            for output_key in ("images", "gifs"):
+                if output_key not in node_output:
+                    continue
+                file_infos = node_output[output_key]
                 print(
-                    f"worker-comfyui - Node {node_id} contains {len(node_output['images'])} image(s)"
+                    f"worker-comfyui - Node {node_id} contains {len(file_infos)} {output_key}"
                 )
-                for image_info in node_output["images"]:
-                    filename = image_info.get("filename")
-                    subfolder = image_info.get("subfolder", "")
-                    img_type = image_info.get("type")
+                for file_info in file_infos:
+                    filename = file_info.get("filename")
+                    subfolder = file_info.get("subfolder", "")
+                    img_type = file_info.get("type")
 
-                    # skip temp images
+                    # skip temp files
                     if img_type == "temp":
                         print(
-                            f"worker-comfyui - Skipping image {filename} because type is 'temp'"
+                            f"worker-comfyui - Skipping {filename} because type is 'temp'"
                         )
                         continue
 
                     if not filename:
-                        warn_msg = f"Skipping image in node {node_id} due to missing filename: {image_info}"
+                        warn_msg = f"Skipping {output_key} entry in node {node_id} due to missing filename: {file_info}"
                         print(f"worker-comfyui - {warn_msg}")
                         errors.append(warn_msg)
                         continue
@@ -862,7 +865,7 @@ def handler(job):
                                     temp_file.write(image_bytes)
                                     temp_file_path = temp_file.name
                                 print(
-                                    f"worker-comfyui - Wrote image bytes to temporary file: {temp_file_path}"
+                                    f"worker-comfyui - Wrote bytes to temporary file: {temp_file_path}"
                                 )
 
                                 print(f"worker-comfyui - Uploading {filename} to S3...")
@@ -871,7 +874,6 @@ def handler(job):
                                 print(
                                     f"worker-comfyui - Uploaded {filename} to S3: {s3_url}"
                                 )
-                                # Append dictionary with filename and URL
                                 output_data.append(
                                     {
                                         "filename": filename,
@@ -898,7 +900,6 @@ def handler(job):
                                 base64_image = base64.b64encode(image_bytes).decode(
                                     "utf-8"
                                 )
-                                # Append dictionary with filename and base64 data
                                 output_data.append(
                                     {
                                         "filename": filename,
@@ -912,11 +913,11 @@ def handler(job):
                                 print(f"worker-comfyui - {error_msg}")
                                 errors.append(error_msg)
                     else:
-                        error_msg = f"Failed to fetch image data for {filename} from /view endpoint."
+                        error_msg = f"Failed to fetch data for {filename} from /view endpoint."
                         errors.append(error_msg)
 
             # Check for other output types
-            other_keys = [k for k in node_output.keys() if k != "images"]
+            other_keys = [k for k in node_output.keys() if k not in ("images", "gifs")]
             if other_keys:
                 warn_msg = (
                     f"Node {node_id} produced unhandled output keys: {other_keys}."
