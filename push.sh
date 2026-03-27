@@ -1,0 +1,1 @@
+docker push $(cat image_name.txt)

@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+# Run pre-start hook if it exists
+if [ -f /prestart.sh ]; then
+    bash /prestart.sh
+fi
+
 # Start SSH server if PUBLIC_KEY is set (enables remote access and dev-sync.sh)
 if [ -n "$PUBLIC_KEY" ]; then
     mkdir -p ~/.ssh
@@ -66,7 +71,11 @@ if [ "$SERVE_API_LOCALLY" == "true" ]; then
     echo "worker-comfyui: Starting RunPod Handler"
     python -u /handler.py --rp_serve_api --rp_api_host=0.0.0.0
 else
-    python -u /comfyui/main.py --disable-auto-launch --disable-metadata --verbose "${COMFY_LOG_LEVEL}" --log-stdout &
+    SAGE_ATTENTION_FLAG=""
+    if [ "${USE_SAGE_ATTENTION:-true}" == "true" ]; then
+        SAGE_ATTENTION_FLAG="--use-sage-attention"
+    fi
+    python -u /comfyui/main.py ${SAGE_ATTENTION_FLAG} ${COMFY_VRAM_MODE} --disable-auto-launch --disable-metadata --verbose "${COMFY_LOG_LEVEL}" --log-stdout &
     echo $! > "$COMFY_PID_FILE"
 
     echo "worker-comfyui: Starting RunPod Handler"

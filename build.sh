@@ -1,5 +1,7 @@
 CACHE_DIR="$(pwd)/.docker-cache"
 
+IMAGE_NAME="${1:-$(cat image_name.txt)}"
+
 docker build \
     --build-arg BASE_IMAGE="nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04" \
     --build-arg MODEL_TYPE="none" \
@@ -11,5 +13,5 @@ docker build \
     --build-arg SOURCE_DATE_EPOCH=0 \
     --cache-to "type=local,dest=${CACHE_DIR},mode=max" \
     --cache-from "type=local,src=${CACHE_DIR}" \
-    -t flefebvredev/worker-comfyui:5.8.3-base \
+    -t "${IMAGE_NAME}" \
     .
