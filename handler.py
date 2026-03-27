@@ -312,16 +312,20 @@ def upload_images(images):
             name = image["name"]
             image_data_uri = image["image"]  # Get the full string (might have prefix)
 
-            # --- Strip Data URI prefix if present ---
-            if "," in image_data_uri:
-                # Find the comma and take everything after it
-                base64_data = image_data_uri.split(",", 1)[1]
+            if image_data_uri.startswith(("http://", "https://")):
+                # Download image from URL
+                print(f"worker-comfyui - Downloading image from URL: {image_data_uri}")
+                dl_response = requests.get(image_data_uri, timeout=30)
+                dl_response.raise_for_status()
+                blob = dl_response.content
             else:
-                # Assume it's already pure base64
-                base64_data = image_data_uri
-            # --- End strip ---
-
-            blob = base64.b64decode(base64_data)  # Decode the cleaned data
+                # --- Strip Data URI prefix if present ---
+                if "," in image_data_uri:
+                    base64_data = image_data_uri.split(",", 1)[1]
+                else:
+                    base64_data = image_data_uri
+                # --- End strip ---
+                blob = base64.b64decode(base64_data)  # Decode the cleaned data
 
             # Prepare the form data
             files = {
@@ -569,6 +573,32 @@ def get_image_data(filename, subfolder, image_type):
         return None
 
 
+def _build_timing_summary(records, total_s):
+    """Return a formatted timing table string for logs."""
+    if not records:
+        return ""
+    lines = [
+        "",
+        "=== Timing Summary ===",
+        f"Total execution: {total_s:.1f}s",
+        "",
+        f"  {'Node':<48} {'Duration':>9}  {'%':>5}  Bar",
+        "  " + "-" * 75,
+    ]
+    for r in records:
+        cached = r.get("cached", False)
+        dur = r["duration_s"]
+        pct = (dur / total_s * 100) if total_s > 0 and not cached else 0.0
+        bar = "█" * int(pct / 5)
+        suffix = " (cached)" if cached else ""
+        label = f"{r['title']} [{r['node_id']}]"
+        lines.append(
+            f"  {label:<48} {dur:>7.1f}s  {pct:>4.0f}%  {bar}{suffix}"
+        )
+    lines.append("=" * 79)
+    return "\n".join(lines)
+
+
 def handler(job):
     """
     Handles a job using ComfyUI via websockets for status and image retrieval.
@@ -596,6 +626,21 @@ def handler(job):
     # Extract validated data
     workflow = validated_data["workflow"]
     input_images = validated_data.get("images")
+
+    # Build node metadata lookup (title + class_type) from the workflow
+    node_meta = {
+        nid: {
+            "title": ndef.get("_meta", {}).get("title", nid),
+            "class_type": ndef.get("class_type", "unknown"),
+        }
+        for nid, ndef in workflow.items()
+    }
+
+    # Timing state — populated while processing WebSocket messages
+    _timing_records = []       # completed nodes: [{node_id, title, class_type, duration_s}]
+    _timing_node_id = None     # node currently executing
+    _timing_node_start = None  # wall-clock start of that node
+    _timing_exec_start = None  # wall-clock start of the whole execution
 
     # Make sure that the ComfyUI HTTP API is available before proceeding
     if not check_server(
@@ -669,17 +714,49 @@ def handler(job):
                         print(
                             f"worker-comfyui - Status update: {status_data.get('exec_info', {}).get('queue_remaining', 'N/A')} items remaining in queue"
                         )
+                    elif message.get("type") == "execution_start":
+                        data = message.get("data", {})
+                        if data.get("prompt_id") == prompt_id:
+                            _timing_exec_start = time.time()
+                    elif message.get("type") == "execution_cached":
+                        data = message.get("data", {})
+                        if data.get("prompt_id") == prompt_id:
+                            for cached_node_id in data.get("nodes", []):
+                                meta = node_meta.get(cached_node_id, {})
+                                _timing_records.append({
+                                    "node_id": cached_node_id,
+                                    "title": meta.get("title", cached_node_id),
+                                    "class_type": meta.get("class_type", "unknown"),
+                                    "duration_s": 0.0,
+                                    "cached": True,
+                                })
                     elif message.get("type") == "executing":
                         data = message.get("data", {})
-                        if (
-                            data.get("node") is None
-                            and data.get("prompt_id") == prompt_id
-                        ):
-                            print(
-                                f"worker-comfyui - Execution finished for prompt {prompt_id}"
-                            )
-                            execution_done = True
-                            break
+                        if data.get("prompt_id") == prompt_id:
+                            now = time.time()
+                            node_id = data.get("node")
+                            # Close out the previous node's timer
+                            if _timing_node_id is not None and _timing_node_start is not None:
+                                meta = node_meta.get(_timing_node_id, {})
+                                _timing_records.append({
+                                    "node_id": _timing_node_id,
+                                    "title": meta.get("title", _timing_node_id),
+                                    "class_type": meta.get("class_type", "unknown"),
+                                    "duration_s": round(now - _timing_node_start, 2),
+                                    "cached": False,
+                                })
+                            if node_id is None:
+                                # Execution complete
+                                _timing_node_id = None
+                                _timing_node_start = None
+                                print(
+                                    f"worker-comfyui - Execution finished for prompt {prompt_id}"
+                                )
+                                execution_done = True
+                                break
+                            else:
+                                _timing_node_id = node_id
+                                _timing_node_start = now
                     elif message.get("type") == "execution_error":
                         data = message.get("data", {})
                         if data.get("prompt_id") == prompt_id:
@@ -870,7 +947,21 @@ def handler(job):
             print(f"worker-comfyui - Closing websocket connection.")
             ws.close()
 
+    # Build and log timing summary
+    _timing_total_s = (
+        time.time() - _timing_exec_start if _timing_exec_start is not None else 0.0
+    )
+    _timing_summary_str = _build_timing_summary(_timing_records, _timing_total_s)
+    if _timing_summary_str:
+        print(_timing_summary_str)
+
     final_result = {}
+
+    if _timing_records:
+        final_result["timing"] = {
+            "total_s": round(_timing_total_s, 2),
+            "nodes": _timing_records,
+        }
 
     if output_data:
         final_result["images"] = output_data
