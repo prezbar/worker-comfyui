@@ -5,6 +5,7 @@ safe_ln() {
         echo "Error: '$1' does not exist" >&2
         return 1
     fi
+    mkdir -p "$(dirname "$2")"
     ln -s "$1" "$2"
 }
 
