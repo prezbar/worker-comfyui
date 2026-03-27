@@ -1,8 +1,27 @@
 #!/usr/bin/env bash
 
-# Run pre-start hook if it exists
+safe_ln() {
+    if [ ! -e "$1" ]; then
+        echo "Error: '$1' does not exist" >&2
+        return 1
+    fi
+    ln -s "$1" "$2"
+}
+
+ls -R /runpod-volume/ 2>/dev/null || true
+if [ ! -d /runpod-volume ]; then
+    echo "Info: /runpod-volume does not exist, skipping SNAPSHOT_DIR resolution"
+    SNAPSHOT_DIR=""
+elif SNAPSHOT_DIR=$(ls -d /runpod-volume/huggingface-cache/hub/*/snapshots/*/ 2>/dev/null | head -1) && [ -n "$SNAPSHOT_DIR" ]; then
+    echo "Info: SNAPSHOT_DIR=$SNAPSHOT_DIR"
+else
+    echo "Info: flashvsr snapshot directory not found in /runpod-volume"
+    SNAPSHOT_DIR=""
+fi
+
+# Run pre-start hook if it exists (sourced to inherit functions defined above)
 if [ -f /prestart.sh ]; then
-    bash /prestart.sh
+    source /prestart.sh
 fi
 
 # Start SSH server if PUBLIC_KEY is set (enables remote access and dev-sync.sh)

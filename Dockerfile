@@ -74,9 +74,6 @@ WORKDIR /
 # Install Python runtime dependencies for the handler
 RUN uv pip install runpod requests websocket-client
 
-# Add application code and scripts
-ADD src/start.sh src/network_volume.py handler.py test_input.json ./
-RUN chmod +x /start.sh
 
 # Add script to install custom nodes
 COPY scripts/comfy-node-install.sh /usr/local/bin/comfy-node-install
@@ -84,13 +81,6 @@ RUN chmod +x /usr/local/bin/comfy-node-install
 
 # Prevent pip from asking for confirmation during uninstall steps in custom nodes
 ENV PIP_NO_INPUT=1
-
-# Copy helper script to switch Manager network mode at container start
-COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
-RUN chmod +x /usr/local/bin/comfy-manager-set-mode
-
-# Set the default command to run when starting the container
-CMD ["/start.sh"]
 
 RUN mkdir -p models/checkpoints models/vae models/unet models/clip models/text_encoders models/diffusion_models models/model_patches
 
@@ -101,3 +91,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir https://huggingface.co/buckets/Prezbar/sage-attn/resolve/8_9-12/cu130/sageattention-2.2.0-cp312-cp312-linux_x86_64.whl
+
+# Copy helper script to switch Manager network mode at container start
+COPY scripts/comfy-manager-set-mode.sh /usr/local/bin/comfy-manager-set-mode
+RUN chmod +x /usr/local/bin/comfy-manager-set-mode
+
+# Add application code and scripts
+ADD src/start.sh src/network_volume.py handler.py test_input.json ./
+RUN chmod +x /start.sh
+
+# Set the default command to run when starting the container
+CMD ["/start.sh"]
