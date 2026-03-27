@@ -1,1 +1,1 @@
-flefebvredev/worker-comfyui:v6
+flefebvredev/worker-comfyui:v7
